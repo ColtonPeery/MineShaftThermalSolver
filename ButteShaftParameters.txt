@@ -1,0 +1,22 @@
+title , "Mine Shaft Simulation"
+
+# All of the following dimensions are measured in meters
+outerPipeDepth , 200
+innerPipeDepth , 198
+
+shaftDepth , 1193
+innerGroundRadius , 2.25
+outerGroundRadius , 150
+#waterNodeRadialSpacing , 0.1
+#nearPipeWaterNodeRadialSpacing, 0.015
+??firstGroundNodeRadialSpacing , 10
+??groundNodeRadialSpacingGrowthRate, 1.5
+pipeNodeAxialSpacing , 5
+??lowerWaterNodeAxialSpacing , 10
+#pipeClusterCenterLocation , 1.25
+#innerPipeDistances , 0.1
+#outerPipeDistances , 0.4
+innerPipeDiameter , .0254
+outerPipeDiameter , .03
+#standardInnerLimit, 0.9
+#nearPipeOuterRange, 0.1
