@@ -547,7 +547,7 @@ if __name__ == "__main__":
                      allowDistortion=False
                      )
     gl2d.glWait()
-
+#
 sys.saveTempsToCSV(temps,
         'displayed_nodes.csv',
         sys.displayed_node_indices
