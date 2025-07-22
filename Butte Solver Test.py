@@ -21,44 +21,79 @@ class Node:
         self.down = None
         self.left = None
         self.right = None
+
+    def get_pipe_wall_resistance(self, dz=None):
+        if dz is None:
+            dz = self.pipeNodeAxialSpacing
+        r_i = self.innerPipeDiameter / 2.0
+        r_o = self.outerPipeDiameter / 2.0
+        return np.log(r_o / r_i) / (2 * np.pi * self.k_pipe * dz)
+
     def addToMatrix(self, system):
-            i = self.number
-            # 1) RADIAL conduction
+        i = self.number
+
+        # --- 1) RADIAL conduction / pipe‐wall ---
+        if self.Type in ('flowUp', 'flowDown', 'fluid'):
+            # fluid → water (pipe wall)
+            water = self.right
+            if water and water.Type == 'water':
+                dz = system.pipeNodeAxialSpacing
+                R_wall = system.get_pipe_wall_resistance(dz)
+                G = 1.0 / R_wall
+                j = water.number
+
+                system.K[i, j] += -G
+                system.K[i, i] += G
+
+        elif self.Type == 'water':
+            # water → all fluid nodes (back‐link) via pipe‐wall
+            for fluid in getattr(self, 'radial_neighbors', []):
+                dz = system.pipeNodeAxialSpacing
+                R_wall = system.get_pipe_wall_resistance(dz)
+                G = 1.0 / R_wall
+                j = fluid.number
+
+                system.K[i, j] += -G
+                system.K[i, i] += G
+
+            # water → ground
+            ground = self.right
+            if ground and ground.Type == 'ground':
+                dr = ground.x - self.x
+                r_face = 0.5 * (self.x + ground.x)
+                dz = system.lowerWaterNodeAxialSpacing
+                k_w = system.get_conductivity('water')
+                A_r = 2.0 * np.pi * r_face * dz
+                G = k_w * A_r / dr
+                j = ground.number
+
+                system.K[i, j] += -G
+                system.K[i, i] += G
+
+        elif self.Type == 'ground':
+            # ground ↔ ground
             for neigh in (self.left, self.right):
-                if neigh:
+                if neigh and neigh.Type == 'ground':
                     dr = abs(neigh.x - self.x)
                     r_face = 0.5 * (self.x + neigh.x)
-                    A_r = 2 * np.pi * r_face * system.pipeNodeAxialSpacing
-                    k_r = system.get_conductivity(self.Type)
-                    G = k_r * A_r / dr
+
+                    # use actual axial span for this ground ring
+                    if self.up and self.down:
+                        dz = self.down.y - self.up.y
+                    elif self.up:
+                        dz = self.y - self.up.y
+                    elif self.down:
+                        dz = self.down.y - self.y
+                    else:
+                        dz = system.lowerWaterNodeAxialSpacing
+
+                    k_g = system.get_conductivity('ground')
+                    A_r = 2.0 * np.pi * r_face * dz
+                    G = k_g * A_r / dr
                     j = neigh.number
-                    system.K[i, j] -= G
+
+                    system.K[i, j] += -G
                     system.K[i, i] += G
-
-            # 2) AXIAL conduction + advection
-            if not (self.Type == 'ground' and not system.use_axial_ground):
-                if self.Type == 'water':
-                    k_ax = system.get_conductivity('water')
-                    rho_cp = system.rho_water * system.cp_water
-                    u_ax = system.u_axial_water
-                else:
-                    k_ax = system.get_conductivity(self.Type)
-                    rho_cp = None
-                    u_ax = None
-
-                for neigh, direction in ((self.up, 'up'), (self.down, 'down')):
-                    if neigh:
-                        dz = abs(neigh.y - self.y)
-                        A_z = 2 * np.pi * self.x * dz
-                        G = k_ax * A_z / dz
-                        j = neigh.number
-                        system.K[i, j] -= G
-                        system.K[i, i] += G
-
-                        if self.Type == 'water' and u_ax != 0.0:
-                            F = rho_cp * u_ax * A_z
-                            system.K[i, i] += F
-                            system.K[i, j] -= F
 
                 if self.Type in ('flowUp', 'flowDown'):
                     # 3a) Upwind advection
@@ -498,4 +533,29 @@ if __name__ == "__main__":
     sys.linkNodes()
     temps = sys.runTransient(24, 3600.0, 'temps_24h.csv', [0, 5, 10])
 
+    # single slice
+    #     gl2d = gl2D(None, sys.draw_slice_full, windowType="glfw")
+    #     gl2d.setViewSize(
+    #         0,
+    #          sys.outerGroundRadius,
+    #         14.5,
+    #         15.5,
+    #         allowDistortion=False
+    #     )
+    #     gl2d.glWait()
+    #
+    #     # All-nodes visualization
+    #     gl2d = gl2D(None, sys.draw_all_nodes, windowType="glfw")
+    #     gl2d.setViewSize( 0, sys.outerGroundRadius, 0,
+    #         sys.shaftDepth,
+    #         allowDistortion=False
+    #     )
+    #     gl2d.glWait()
+
+    gl2d = gl2D(None, sys.draw_selected_nodes, windowType="glfw")
+    gl2d.setViewSize(0, (sys.innerGroundRadius * 2 / 42.0) * 7,
+                     sys.shaftDepth - (sys.pipeDepth / 5), sys.shaftDepth,
+                     allowDistortion=False
+                     )
+    gl2d.glWait()
 
