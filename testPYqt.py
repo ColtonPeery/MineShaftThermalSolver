@@ -261,66 +261,66 @@ class System:
 
     pass
 
-    def draw_slice(self):
-        # pick your slice depth
-        z_target = self.AxialNodeLocations[3]
-        tol = self.pipeNodeAxialSpacing / 2.0
-
-        # all nodes at that depth
-        nodes_slice = [n for n in self.Nodes if abs(n.y - z_target) < tol]
-        # keep only ground
-        ground_slice = [n for n in nodes_slice if n.Type == 'ground']
-
-        color_map = {
-            'ground': (0.2, 0.8, 0.2),
-        }
-
-        glClear(GL_COLOR_BUFFER_BIT)
-        glPointSize(10.0)
-        # draw ground nodes only
-        for n in ground_slice:
-            glColor3f(*color_map['ground'])
-            gl2DCircle(n.x, n.y, radius=1, fill=True)
-
-        # optional labels for ground
-        glColor3f(1, 1, 1)
-        for n in ground_slice:
-            hf.drawText(n.Type, n.x + 1, n.y + 1, scale=1)
-
-    def draw_slice_inner_ground(self):
-        # 1) pick your slice depth
-        z_target = self.AxialNodeLocations[3]
-        tol = self.pipeNodeAxialSpacing / 2.0
-
-        # 2) set radial max to exactly innerGroundRadius
-        r_max = self.innerGroundRadius
-
-        # 3) filter nodes at that depth AND inside [0, r_max]
-        nodes_slice = [
-            n for n in self.Nodes
-            if abs(n.y - z_target) < tol
-               and 0.0 <= n.x <= r_max
-        ]
-
-        # 4) draw them
-        color_map = {
-            'flowDown': (1, 0, 0),
-            'flowUp': (0.8, 0.2, 0.2),
-            'water': (0, 0, 1),
-            'pipeWall': (0.5, 0.5, 0.5),
-            'ground': (0.2, 0.8, 0.2),
-        }
-
-        glClear(GL_COLOR_BUFFER_BIT)
-        glPointSize(10.0)
-        for n in nodes_slice:
-            glColor3f(*color_map.get(n.Type, (1, 1, 1)))
-            gl2DCircle(n.x, n.y, radius=0.0025, fill=True)
-
-        # optional labels
-        glColor3f(1, 1, 1)
-        for n in nodes_slice:
-            hf.drawText(n.Type, n.x, n.y, scale=0.0025)
+    # def draw_slice(self):
+    #     # pick your slice depth
+    #     z_target = self.AxialNodeLocations[3]
+    #     tol = self.pipeNodeAxialSpacing / 2.0
+    #
+    #     # all nodes at that depth
+    #     nodes_slice = [n for n in self.Nodes if abs(n.y - z_target) < tol]
+    #     # keep only ground
+    #     ground_slice = [n for n in nodes_slice if n.Type == 'ground']
+    #
+    #     color_map = {
+    #         'ground': (0.2, 0.8, 0.2),
+    #     }
+    #
+    #     glClear(GL_COLOR_BUFFER_BIT)
+    #     glPointSize(10.0)
+    #     # draw ground nodes only
+    #     for n in ground_slice:
+    #         glColor3f(*color_map['ground'])
+    #         gl2DCircle(n.x, n.y, radius=1, fill=True)
+    #
+    #     # optional labels for ground
+    #     glColor3f(1, 1, 1)
+    #     for n in ground_slice:
+    #         hf.drawText(n.Type, n.x + 1, n.y + 1, scale=1)
+    #
+    # def draw_slice_inner_ground(self):
+    #     # 1) pick your slice depth
+    #     z_target = self.AxialNodeLocations[3]
+    #     tol = self.pipeNodeAxialSpacing / 2.0
+    #
+    #     # 2) set radial max to exactly innerGroundRadius
+    #     r_max = self.innerGroundRadius
+    #
+    #     # 3) filter nodes at that depth AND inside [0, r_max]
+    #     nodes_slice = [
+    #         n for n in self.Nodes
+    #         if abs(n.y - z_target) < tol
+    #            and 0.0 <= n.x <= r_max
+    #     ]
+    #
+    #     # 4) draw them
+    #     color_map = {
+    #         'flowDown': (1, 0, 0),
+    #         'flowUp': (0.8, 0.2, 0.2),
+    #         'water': (0, 0, 1),
+    #         'pipeWall': (0.5, 0.5, 0.5),
+    #         'ground': (0.2, 0.8, 0.2),
+    #     }
+    #
+    #     glClear(GL_COLOR_BUFFER_BIT)
+    #     glPointSize(10.0)
+    #     for n in nodes_slice:
+    #         glColor3f(*color_map.get(n.Type, (1, 1, 1)))
+    #         gl2DCircle(n.x, n.y, radius=0.0025, fill=True)
+    #
+    #     # optional labels
+    #     glColor3f(1, 1, 1)
+    #     for n in nodes_slice:
+    #         hf.drawText(n.Type, n.x, n.y, scale=0.0025)
 
     def draw_slice_full(self):
         """
@@ -364,12 +364,42 @@ class System:
         for n in self.Nodes:
                 col = color_map.get(n.Type, (1.0, 1.0, 1.0))
                 glColor3f(*col)
-                gl2DCircle(n.x, n.y, radius=1, fill=True)
+                gl2DCircle(n.x, self.shaftDepth - n.y, radius=0.1, fill=True)
 
         # optional labels
         glColor3f(1, 1, 1)
         for n in self.Nodes:
-            hf.drawText(n.Type, n.x, n.y, scale=0.25)
+            hf.drawText(n.Type, n.x, self.shaftDepth - n.y, scale=0.25)
+
+    def draw_selected_nodes(self):
+
+        color_map = {
+            'flowDown': (1, 0, 0),
+            'flowUp': (0.8, 0.2, 0.2),
+            'water': (0, 0, 1),
+            'ground': (0.2, 0.8, 0.2),
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT)
+        glPointSize(10.0)
+
+
+        delta_x = self.innerGroundRadius*2 / 42.0
+        xval = 0
+        for n in self.Nodes:
+            if n.y < (self.pipeDepth / 5):
+                if n.x < (self.innerGroundRadius * 2):
+                    col = color_map.get(n.Type, (1.0, 1.0, 1.0))
+                    glColor3f(*col)
+                    gl2DCircle(xval, self.shaftDepth - n.y, radius=1, fill=True)
+                    glColor3f(1, 1, 1)
+                    hf.drawText(n.Type, xval, self.shaftDepth - n.y, scale=2.5)
+
+
+            else:
+                xval += delta_x
+
+
 
 
 if __name__ == "__main__":
@@ -397,21 +427,28 @@ if __name__ == "__main__":
 #         allowDistortion=False
 #     )
 #     gl2d.glWait()
+# single slice
+#     gl2d = gl2D(None, sys.draw_slice_full, windowType="glfw")
+#     gl2d.setViewSize(
+#         0,
+#          sys.outerGroundRadius,
+#         14.5,
+#         15.5,
+#         allowDistortion=False
+#     )
+#     gl2d.glWait()
+#
+#     # All-nodes visualization
+#     gl2d = gl2D(None, sys.draw_all_nodes, windowType="glfw")
+#     gl2d.setViewSize( 0, sys.outerGroundRadius, 0,
+#         sys.shaftDepth,
+#         allowDistortion=False
+#     )
+#     gl2d.glWait()
 
-    gl2d = gl2D(None, sys.draw_slice_full, windowType="glfw")
-    gl2d.setViewSize(
-        0,
-         sys.outerGroundRadius,
-        14.5,
-        15.5,
-        allowDistortion=False
-    )
-    gl2d.glWait()
-
-    # All-nodes visualization
-    gl2d = gl2D(None, sys.draw_all_nodes, windowType="glfw")
-    gl2d.setViewSize( 150, 0, 1193,
-        0,
-        allowDistortion=False
-    )
+    gl2d = gl2D(None, sys.draw_selected_nodes, windowType="glfw")
+    gl2d.setViewSize(0, (sys.innerGroundRadius*2/42.0)*7,
+                    sys.shaftDepth - (sys.pipeDepth/5), sys.shaftDepth,
+                     allowDistortion=False
+                     )
     gl2d.glWait()

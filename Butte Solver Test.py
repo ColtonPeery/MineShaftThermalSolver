@@ -1,8 +1,11 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
 import pandas as pd
+from OpenGL.GL import *
+from OpenGL_2D_class_GLFW import gl2D, gl2DCircle
+from HersheyFont import HersheyFont
+hf = HersheyFont()
 
 
 class Node:
@@ -409,6 +412,82 @@ class System:
         for node in self.Nodes: node.Temp = temps[-1, node.number]
         if csv_filename: self.saveTempsToCSV(temps, csv_filename, selected_nodes)
         return temps
+
+    def draw_slice_full(self):
+        """
+        Draws a full radial slice at the 4th axial layer, showing all node types.
+        """
+        z_target = self.AxialNodeLocations[3]
+        tol = self.pipeNodeAxialSpacing / 2.0
+        nodes_slice = [n for n in self.Nodes if abs(n.y - z_target) < tol]
+
+        color_map = {
+            'flowDown': (1, 0, 0),
+            'flowUp': (0.8, 0.2, 0.2),
+            'water': (0, 0, 1),
+            'ground': (0.2, 0.8, 0.2),
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT)
+        glPointSize(10.0)
+        for n in nodes_slice:
+            glColor3f(*color_map.get(n.Type, (1, 1, 1)))
+            gl2DCircle(n.x, n.y, radius=0.1, fill=True)
+
+        # optional labels
+        glColor3f(1, 1, 1)
+        for n in nodes_slice:
+            hf.drawText(n.Type, n.x, n.y, scale=0.1)
+
+    def draw_all_nodes(self):
+        """
+        Draws every node in the system across the full radial and axial extents.
+        """
+        color_map = {
+            'flowDown': (1, 0, 0),
+            'flowUp': (0.8, 0.2, 0.2),
+            'water': (0, 0, 1),
+            'ground': (0.2, 0.8, 0.2),
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT)
+        glPointSize(10.0)
+        for n in self.Nodes:
+            col = color_map.get(n.Type, (1.0, 1.0, 1.0))
+            glColor3f(*col)
+            gl2DCircle(n.x, self.shaftDepth - n.y, radius=0.1, fill=True)
+
+        # optional labels
+        glColor3f(1, 1, 1)
+        for n in self.Nodes:
+            hf.drawText(n.Type, n.x, self.shaftDepth - n.y, scale=0.25)
+
+    def draw_selected_nodes(self):
+
+        color_map = {
+            'flowDown': (1, 0, 0),
+            'flowUp': (0.8, 0.2, 0.2),
+            'water': (0, 0, 1),
+            'ground': (0.2, 0.8, 0.2),
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT)
+        glPointSize(10.0)
+
+        delta_x = self.innerGroundRadius * 2 / 42.0
+        xval = 0
+        for n in self.Nodes:
+            if n.y < (self.pipeDepth / 5):
+                if n.x < (self.innerGroundRadius * 2):
+                    col = color_map.get(n.Type, (1.0, 1.0, 1.0))
+                    glColor3f(*col)
+                    gl2DCircle(xval, self.shaftDepth - n.y, radius=1, fill=True)
+                    glColor3f(1, 1, 1)
+                    hf.drawText(n.Type, xval, self.shaftDepth - n.y, scale=2.5)
+
+
+            else:
+                xval += delta_x
 
 if __name__ == "__main__":
     sys = System()
