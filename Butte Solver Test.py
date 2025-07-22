@@ -22,41 +22,54 @@ class Node:
         self.left = None
         self.right = None
 
-    def get_pipe_wall_resistance(self, dz=None):
+    def get_pipe_wall_resistance(self, system, dz=None):
+        """
+        Thermal resistance of the pipe wall [K/W] for one axial segment dz.
+        """
         if dz is None:
-            dz = self.pipeNodeAxialSpacing
-        r_i = self.innerPipeDiameter / 2.0
-        r_o = self.outerPipeDiameter / 2.0
-        return np.log(r_o / r_i) / (2 * np.pi * self.k_pipe * dz)
+            dz = system.pipeNodeAxialSpacing
+        r_i = system.innerPipeDiameter / 2.0
+        r_o = system.outerPipeDiameter / 2.0
+        return np.log(r_o / r_i) / (2.0 * np.pi * system.k_pipe * dz)
 
     def addToMatrix(self, system):
         i = self.number
 
-        # --- 1) RADIAL conduction / pipe‐wall ---
+        # 1) Fluid/fluid‐flow nodes: conduction to water + upwind advection
         if self.Type in ('flowUp', 'flowDown', 'fluid'):
-            # fluid → water (pipe wall)
+            # 1a) Conduction through pipe wall (fluid → water)
             water = self.right
             if water and water.Type == 'water':
                 dz = system.pipeNodeAxialSpacing
-                R_wall = system.get_pipe_wall_resistance(dz)
+                R_wall = self.get_pipe_wall_resistance(system, dz)
                 G = 1.0 / R_wall
                 j = water.number
 
-                system.K[i, j] += -G
+                system.K[i, j] -= G
                 system.K[i, i] += G
 
+            # 1b) Upwind advection (only for flowing legs)
+            if self.Type in ('flowUp', 'flowDown'):
+                F = system.m_dot_per_leg * system.cp_fluid
+                neighbor = self.up if self.Type == 'flowUp' else self.down
+                if neighbor:
+                    j = neighbor.number
+                    system.K[i, i] += F
+                    system.K[i, j] -= F
+
+        # 2) Water nodes: back‑link conduction to all fluids + conduction to ground
         elif self.Type == 'water':
-            # water → all fluid nodes (back‐link) via pipe‐wall
+            # 2a) Back‑link to every fluid at this layer via pipe wall
             for fluid in getattr(self, 'radial_neighbors', []):
                 dz = system.pipeNodeAxialSpacing
-                R_wall = system.get_pipe_wall_resistance(dz)
+                R_wall = self.get_pipe_wall_resistance(system, dz)
                 G = 1.0 / R_wall
                 j = fluid.number
 
-                system.K[i, j] += -G
+                system.K[i, j] -= G
                 system.K[i, i] += G
 
-            # water → ground
+            # 2b) Radial conduction to the first ground node
             ground = self.right
             if ground and ground.Type == 'ground':
                 dr = ground.x - self.x
@@ -67,17 +80,17 @@ class Node:
                 G = k_w * A_r / dr
                 j = ground.number
 
-                system.K[i, j] += -G
+                system.K[i, j] -= G
                 system.K[i, i] += G
 
+        # 3) Ground nodes: radial conduction to other ground nodes
         elif self.Type == 'ground':
-            # ground ↔ ground
             for neigh in (self.left, self.right):
                 if neigh and neigh.Type == 'ground':
                     dr = abs(neigh.x - self.x)
                     r_face = 0.5 * (self.x + neigh.x)
 
-                    # use actual axial span for this ground ring
+                    # axial span of this ring
                     if self.up and self.down:
                         dz = self.down.y - self.up.y
                     elif self.up:
@@ -92,17 +105,8 @@ class Node:
                     G = k_g * A_r / dr
                     j = neigh.number
 
-                    system.K[i, j] += -G
+                    system.K[i, j] -= G
                     system.K[i, i] += G
-
-                if self.Type in ('flowUp', 'flowDown'):
-                    # 3a) Upwind advection
-                    F = system.m_dot_per_leg * system.cp_fluid
-                    neighbor = self.up if self.Type == 'flowUp' else self.down
-                    if neighbor:
-                        j = neighbor.number
-                        system.K[i, i] += F
-                        system.K[i, j] -= F
 
 
 
@@ -151,6 +155,7 @@ class System:
         self.K = None
         self.b0 = None
         self.C = None
+        self.displayed_node_indices = []
 
     def get_conductivity(self, material_type):
         """
@@ -505,7 +510,7 @@ class System:
             'water': (0, 0, 1),
             'ground': (0.2, 0.8, 0.2),
         }
-
+        self.displayed_node_indices = []
         glClear(GL_COLOR_BUFFER_BIT)
         glPointSize(10.0)
 
@@ -514,6 +519,7 @@ class System:
         for n in self.Nodes:
             if n.y < (self.pipeDepth / 5):
                 if n.x < (self.innerGroundRadius * 2):
+                    self.displayed_node_indices.append(n.number)
                     col = color_map.get(n.Type, (1.0, 1.0, 1.0))
                     glColor3f(*col)
                     gl2DCircle(xval, self.shaftDepth - n.y, radius=1, fill=True)
@@ -531,26 +537,9 @@ if __name__ == "__main__":
     sys.createAxialNodeLocations()
     sys.createNodes()
     sys.linkNodes()
-    temps = sys.runTransient(24, 3600.0, 'temps_24h.csv', [0, 5, 10])
+    temps = sys.runTransient(24, 3600)
 
-    # single slice
-    #     gl2d = gl2D(None, sys.draw_slice_full, windowType="glfw")
-    #     gl2d.setViewSize(
-    #         0,
-    #          sys.outerGroundRadius,
-    #         14.5,
-    #         15.5,
-    #         allowDistortion=False
-    #     )
-    #     gl2d.glWait()
-    #
-    #     # All-nodes visualization
-    #     gl2d = gl2D(None, sys.draw_all_nodes, windowType="glfw")
-    #     gl2d.setViewSize( 0, sys.outerGroundRadius, 0,
-    #         sys.shaftDepth,
-    #         allowDistortion=False
-    #     )
-    #     gl2d.glWait()
+
 
     gl2d = gl2D(None, sys.draw_selected_nodes, windowType="glfw")
     gl2d.setViewSize(0, (sys.innerGroundRadius * 2 / 42.0) * 7,
@@ -559,3 +548,7 @@ if __name__ == "__main__":
                      )
     gl2d.glWait()
 
+sys.saveTempsToCSV(temps,
+        'displayed_nodes.csv',
+        sys.displayed_node_indices
+    )
