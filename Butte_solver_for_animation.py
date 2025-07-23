@@ -160,6 +160,7 @@ class System:
         self.T_initial_ground = 15.0
         self.displayed_node_indices = []
         self.current_display_hour = 0
+        self.frame = 0
 
     def get_conductivity(self, material_type):
         """
@@ -485,15 +486,16 @@ class System:
             yval = self.shaftDepth - n.y  # flip the y direction for drawing the picture
             if n.y < (self.pipeDepth / 5):  # we are only going down to 1/5 the pipe depth
                 if n.x < (self.innerGroundRadius * 24):  # only going outward a limited amount
-                    col = color_map.get(n.Type, (1.0, 1.0, 1.0))
-                    glColor3f(*col)
-                    gl2DCircle(xval, yval, radius=1, fill=True)
+                    # col = color_map.get(n.Type, (1.0, 1.0, 1.0))
                     glColor3f(1, 1, 1)
                     hf.drawText(n.Type, xval, yval, scale=1.5, center=True)
                     temp = T[hour, n.number]
-                    label = f"{temp:.1f}C"
+                    col = temperature_to_rgb(temp, 15, 30)
+                    glColor3f(*col)
+                    gl2DCircle(xval, yval, radius=1, fill=True)
+                    label = f"{temp:.2f}C"
                     glColor3f(1, 1, 1)
-                    hf.drawText(label, xval+1, yval+1, scale=1.5, center=True)
+                    hf.drawText(label, xval, yval+1.25, scale=1.25, center=True)
             else:
                 if yval == 0:  # we are at the bottom of the well
                     xval += delta_x  # move to the next column
@@ -512,6 +514,38 @@ class System:
         glVertex2f(xmin, ymin)
         glEnd()
 
+    def AnimationCallback(self, frame, nframes):
+        # calculations needed to configure the picture
+        # these could be done here or by calling a class method
+
+        self.current_display_hour = frame
+
+def temperature_to_rgb(temp, t_min, t_max):
+    """
+    Maps a temperature value to an RGB color.
+    Blue = t_min, Green = middle, Red = t_max
+    """
+    if t_min >= t_max:
+        raise ValueError("t_min must be less than t_max")
+
+    # Normalize temperature to range [0, 1]
+    t_norm = (temp - t_min) / (t_max - t_min)
+
+    if t_norm <= 0.5:
+        # From blue to green
+        ratio = t_norm / 0.5
+        r = 0
+        g = ratio
+        b = (1 - ratio)
+    else:
+        # From green to red
+        ratio = (t_norm - 0.5) / 0.5
+        r = ratio
+        g = (1 - ratio)
+        b = 0
+
+    return (r, g, b)
+
 
 if __name__ == "__main__":
     sys = System()
@@ -523,15 +557,31 @@ if __name__ == "__main__":
     temps = sys.runTransient(24, 3600)
     sys.current_display_hour = 0
 
-    gl2D = gl2D(None, sys.draw_selected_nodes, width=1200, height=600)
-    sys.gl2D = gl2D  # save the gl2D object in "sys" so we have access to the gl2D variables later
+    gl2D1 = gl2D(None, sys.draw_selected_nodes, width=1200, height=600)
+    sys.gl2D = gl2D1  # save the gl2D object in "sys" so we have access to the gl2D variables later
 
-    gl2D.setViewSize(-sys.pipeNodeAxialSpacing,  # a little extra space on the left
+    gl2D1.setViewSize(-sys.pipeNodeAxialSpacing,  # a little extra space on the left
                      sys.pipeNodeAxialSpacing * 19,  # 19 determined by trial and error
                      sys.shaftDepth - (sys.pipeDepth / 5),  # show 1/5 of the pipe depth
                      sys.shaftDepth + sys.pipeNodeAxialSpacing,
                      # add a little extra space at the top allowDistortion=False
                      allowDistortion=False
                      )
-    gl2D.glWait()
+    gl2D1.glWait()
 
+    gl2D2 = gl2D(None, sys.draw_selected_nodes, width=1200, height=600)
+    sys.gl2D = gl2D2
+    gl2D2.setViewSize(-sys.pipeNodeAxialSpacing,  # a little extra space on the left
+                     sys.pipeNodeAxialSpacing * 19,  # 19 determined by trial and error
+                     sys.shaftDepth - (sys.pipeDepth / 5),  # show 1/5 of the pipe depth
+                     sys.shaftDepth + sys.pipeNodeAxialSpacing,
+                     # add a little extra space at the top allowDistortion=False
+                     allowDistortion=False
+                     )
+
+    nframes = len(sys.temps)-1
+    gl2D2.glStartAnimation(sys.AnimationCallback, nframes, delaytime=1,
+                          reverse=True, repeat=False, reset=True)
+
+    gl2D2.glWait()
+    print("hello")
