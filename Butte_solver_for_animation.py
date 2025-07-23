@@ -74,14 +74,48 @@ class Node:
             if ground and ground.Type == 'ground':
                 dr = ground.x - self.x
                 r_face = 0.5 * (self.x + ground.x)
-                dz = system.lowerWaterNodeAxialSpacing
+                if self.up and self.down:
+                    dz = self.down.y - self.up.y
+                elif self.up:
+                    dz = self.y - self.up.y
+                elif self.down:
+                    dz = self.down.y - self.y
+                else:
+                    # fallback if isolated—use the pipe spacing as a guess
+                    dz = system.pipeNodeAxialSpacing
                 k_w = system.get_conductivity('water')
                 A_r = 2.0 * np.pi * r_face * dz
                 G = k_w * A_r / dr
                 j = ground.number
 
+                # water equation
                 system.K[i, j] -= G
                 system.K[i, i] += G
+                # ground equation (mirror)
+                system.K[j, i] -= G
+                system.K[j, j] += G
+
+            if self.Type == 'water':
+                k_w = system.k_water
+                # cross‑sectional area for axial conduction: approximate
+                # A = 2π r * dr, with dr from radial spacing to neighbor
+                if self.left and self.right:
+                    dr = 0.5 * (self.right.x - self.left.x)
+                elif self.left:
+                    dr = self.x - self.left.x
+                elif self.right:
+                    dr = self.right.x - self.x
+                else:
+                    dr = system.innerGroundRadius  # fallback
+                A_ax = 2.0 * np.pi * self.x * dr
+
+                for neigh in (self.up, self.down):
+                    if neigh and neigh.Type == 'water':
+                        dz = abs(neigh.y - self.y)
+                        G = k_w * A_ax / dz
+                        j = neigh.number
+                        system.K[i, j] -= G
+                        system.K[i, i] += G
 
         # 3) Ground nodes: radial conduction to other ground nodes
         elif self.Type == 'ground':
@@ -134,19 +168,19 @@ class System:
         self.filedata = None
 
         # material properties
-        self.k_pipe = 1
-        self.k_water = 1
-        self.k_ground = 1
-        self.k_fluid = 1
-        self.rho_water = 1
-        self.cp_water = 1
-        self.u_axial_water = 1
-        self.rho_fluid = 1
-        self.cp_fluid = 1
-        self.rho_ground = 1
-        self.cp_ground = 1
-        self.rho_pipe = 1
-        self.cp_pipe = 1
+        self.k_pipe = 0.479
+        self.k_water = 0.6
+        self.k_ground = 2.77
+        self.k_fluid = 0.6
+        self.rho_water = 998
+        self.cp_water = 4180
+        # self.u_axial_water = 1
+        self.rho_fluid = 987
+        self.cp_fluid = 4337.34
+        self.rho_ground = 2800.0
+        self.cp_ground = 837.0
+        # self.rho_pipe = 1
+        # self.cp_pipe = 1
         self.num_legs = 4
         self.m_dot_per_leg = 1
         self.h_conv = 1
