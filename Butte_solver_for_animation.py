@@ -23,9 +23,6 @@ class Node:
         self.right = None
 
     def get_pipe_wall_resistance(self, system, dz=None):
-        """
-        Thermal resistance of the pipe wall [K/W] for one axial segment dz.
-        """
         if dz is None:
             dz = system.pipeNodeAxialSpacing
         r_i = system.innerPipeDiameter / 2.0
@@ -182,16 +179,16 @@ class System:
         # self.rho_pipe = 1
         # self.cp_pipe = 1
         self.num_legs = 4
-        self.m_dot_per_leg = 1
+        self.m_dot_per_leg = 3
         self.h_conv = 1
         self.T_fluid_in = 10.0
         self.use_axial_ground = True
         self.K = None
         self.b0 = None
         self.C = None
-        self.T_initial_fluid = 30.0
-        self.T_initial_water = 20.0
-        self.T_initial_ground = 15.0
+        self.T_initial_fluid = 35.0
+        self.T_initial_water = 31.0
+        self.T_initial_ground = 30.0
         self.displayed_node_indices = []
         self.current_display_hour = 0
         self.frame = 0
@@ -524,7 +521,7 @@ class System:
                     glColor3f(1, 1, 1)
                     hf.drawText(n.Type, xval, yval, scale=1.5, center=True)
                     temp = T[hour, n.number]
-                    col = temperature_to_rgb(temp, 15, 30)
+                    col = temperature_to_rgb(temp, 30, 33)
                     glColor3f(*col)
                     gl2DCircle(xval, yval, radius=1, fill=True)
                     label = f"{temp:.2f}C"
@@ -588,7 +585,10 @@ if __name__ == "__main__":
     sys.createAxialNodeLocations()
     sys.createNodes()
     sys.linkNodes()
-    temps = sys.runTransient(24, 3600)
+    temps = sys.runTransient(24,
+                             dt=3600.0,
+                             csv_filename="nodal_temps.csv",
+                             selected_nodes=None)
     sys.current_display_hour = 0
 
     gl2D1 = gl2D(None, sys.draw_selected_nodes, width=1200, height=600)

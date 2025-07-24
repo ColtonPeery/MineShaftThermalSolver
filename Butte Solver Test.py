@@ -74,7 +74,15 @@ class Node:
             if ground and ground.Type == 'ground':
                 dr = ground.x - self.x
                 r_face = 0.5 * (self.x + ground.x)
-                dz = system.lowerWaterNodeAxialSpacing
+                if self.up and self.down:
+                    dz = self.down.y - self.up.y
+                elif self.up:
+                    dz = self.y - self.up.y
+                elif self.down:
+                    dz = self.down.y - self.y
+                else:
+                    # fallback if isolated—use the pipe spacing as a guess
+                    dz = system.pipeNodeAxialSpacing
                 k_w = system.get_conductivity('water')
                 A_r = 2.0 * np.pi * r_face * dz
                 G = k_w * A_r / dr
@@ -82,6 +90,28 @@ class Node:
 
                 system.K[i, j] -= G
                 system.K[i, i] += G
+
+            if self.Type == 'water':
+                k_w = system.k_water
+                # cross‑sectional area for axial conduction: approximate
+                # A = 2π r * dr, with dr from radial spacing to neighbor
+                if self.left and self.right:
+                    dr = 0.5 * (self.right.x - self.left.x)
+                elif self.left:
+                    dr = self.x - self.left.x
+                elif self.right:
+                    dr = self.right.x - self.x
+                else:
+                    dr = system.innerGroundRadius  # fallback
+                A_ax = 2.0 * np.pi * self.x * dr
+
+                for neigh in (self.up, self.down):
+                    if neigh and neigh.Type == 'water':
+                        dz = abs(neigh.y - self.y)
+                        G = k_w * A_ax / dz
+                        j = neigh.number
+                        system.K[i, j] -= G
+                        system.K[i, i] += G
 
         # 3) Ground nodes: radial conduction to other ground nodes
         elif self.Type == 'ground':
