@@ -152,6 +152,7 @@ class System:
         self.RadialNodeTypes = []
         self.AxialNodeLocations = []
         self.AxialNodeTypes = []
+        self.temps = []
         self.pipeDepth = None
         self.shaftDepth = None
         self.innerGroundRadius = None
@@ -192,6 +193,44 @@ class System:
         self.displayed_node_indices = []
         self.current_display_hour = 0
         self.frame = 0
+
+        # self.xmin = -self.pipeNodeAxialSpacing  # a little extra space on the left
+        # self.xmax = self.pipeNodeAxialSpacing * 19 # 19 determined by trial and error
+        # self.ymin = self.shaftDepth - (self.pipeDepth / 5)  # show 1/5 of the pipe depth
+        # self.ymax = self.shaftDepth + self.pipeNodeAxialSpacing
+        # self.numberOfAnimationFrames = len(self.temps) - 1
+        self.AnimDelayTime = 1
+        self.AnimReverse = False
+        self.AnimRepeat = False
+        self.AnimReset = False
+        self.allowDistortion = False
+
+
+
+
+
+        # After  ProcessFileData() is called, the self.Animator class must have meaningful values in
+        # the following drawing size class attributes (data items):
+        # self.xmin, self.xmax, self.ymin,self. ymax    - Used to set the window working space
+        # self.allowDistortion  - Will circles display as round or elliptical?
+        # And the following animation control class attributes:
+        # self.numberOfAnimationFrames   - total number of animation frames
+        # self.AnimDelayTime  - delay time between frames
+        # self.AnimReverse, self.AnimRepeat, self.AnimReset
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def get_conductivity(self, material_type):
         """
@@ -472,7 +511,20 @@ class System:
         if selected_nodes is not None:
             cols = ['time_hr'] + [f'node_{i}' for i in selected_nodes]
             df = df[cols]
+
+        new_row_data = {'Name': 'Charlie', 'Age': 35}
+        new_row_df = pd.DataFrame([new_row_data])
+        df_with_new_row = pd.concat([new_row_df, df], ignore_index=True)
+        print(df_with_new_row)
+
+
+        self.xmin = -self.pipeNodeAxialSpacing  # a little extra space on the left
+        self.xmax = self.pipeNodeAxialSpacing * 19  # 19 determined by trial and error
+        self.ymin = self.shaftDepth - (self.pipeDepth / 5)  # show 1/5 of the pipe depth
+        self.ymax = self.shaftDepth + self.pipeNodeAxialSpacing
+
         df.to_csv(filename, index=False)
+        df.to_csv(filename, mode='a', index=False )
         print(f"Saved temperatures to {filename}")
 
     def runTransient(self, hours, dt=3600.0, csv_filename=None, selected_nodes=None):
@@ -499,6 +551,18 @@ class System:
         self.temps = temps  # <<< store it on the System
         return temps
 
+    def PrepareNextAnimationFrameData(self, current_frame, number_of_frames):
+        self.AnimationCallback(current_frame, number_of_frames)
+
+
+
+
+
+    def DrawPicture(self):
+        self.draw_selected_nodes()
+
+
+
     def draw_selected_nodes(self):
         hour = self.current_display_hour
         T = self.temps
@@ -521,10 +585,10 @@ class System:
                     glColor3f(1, 1, 1)
                     hf.drawText(n.Type, xval, yval, scale=1.5, center=True)
                     temp = T[hour, n.number]
-                    col = temperature_to_rgb(temp, 30, 33)
+                    col = temperature_to_rgb(temp, 30.9, 31)
                     glColor3f(*col)
                     gl2DCircle(xval, yval, radius=1, fill=True)
-                    label = f"{temp:.2f}C"
+                    label = f"{temp:.3f}C"
                     glColor3f(1, 1, 1)
                     hf.drawText(label, xval, yval+1.25, scale=1.25, center=True)
             else:
@@ -551,31 +615,116 @@ class System:
 
         self.current_display_hour = frame
 
+
+    def ProcessFileData(self, data):
+        # from the array of strings, fill the wing dictionary
+
+        for line in data:  # loop over all the lines
+            cells = line.strip().replace('(','').replace(')','').split(',')
+            keyword = cells[0].strip().lower()
+
+            if keyword == 'title': self.title = cells[1].replace("'", "")
+
+            if keyword == 'params':
+                self.spacing = float(cells[1])
+                self.rowSize = float(cells[2])
+
+            if keyword == 'row':
+                t = []
+                for i in range(2,len(cells)): #loop over all temperatures on the row
+                    t.append(float(cells[i]))
+                self.temps.append(t)
+
+        self.ConnectData()
+
+
+    def ConnectData(self):
+        # required for the animator
+        self.xmin = -self.spacing * 2
+        self.xmax = self.rowSize * self.spacing * 1.05
+        self.ymin = -self.spacing
+        self.ymax = self.spacing * 6
+
+
+        self.numberOfAnimationFrames = len(self.temps) - 1
+        self.frame = 0 #for the animation frame on startup
+
+
+
+
+
+
+
+
+
+
+
+
+    def read_nodal_temps_csv(self,csv_filename):
+
+
+
+        self.xmin = -self.pipeNodeAxialSpacing  # a little extra space on the left
+        # self.xmax = self.pipeNodeAxialSpacing * 19 # 19 determined by trial and error
+        # self.ymin = self.shaftDepth - (self.pipeDepth / 5)  # show 1/5 of the pipe depth
+        # self.ymax = self.shaftDepth + self.pipeNodeAxialSpacing
+        # self.numberOfAnimationFrames = len(self.temps) - 1
+
+
+
+        df = pd.read_csv(csv_filename)
+        # extract time and temperature columns
+        time_hr = df['time_hr'].to_numpy()
+        temp_cols = [c for c in df.columns if c.startswith('node_')]
+        temps = df[temp_cols].to_numpy()
+        return time_hr, temps, temp_cols, df
+
+
+
 def temperature_to_rgb(temp, t_min, t_max):
-    """
-    Maps a temperature value to an RGB color.
-    Blue = t_min, Green = middle, Red = t_max
-    """
     if t_min >= t_max:
         raise ValueError("t_min must be less than t_max")
 
-    # Normalize temperature to range [0, 1]
+    # Normalize temperature to range [0.0, 1.0]
     t_norm = (temp - t_min) / (t_max - t_min)
 
-    if t_norm <= 0.5:
-        # From blue to green
-        ratio = t_norm / 0.5
-        r = 0
+    if t_norm <= 0.25:
+        # Blue (0,0,1) → Cyan (0,1,1)
+        ratio = t_norm / 0.25
+        r = 0.0
         g = ratio
-        b = (1 - ratio)
-    else:
-        # From green to red
-        ratio = (t_norm - 0.5) / 0.5
-        r = ratio
-        g = (1 - ratio)
-        b = 0
+        b = 1.0
 
-    return (r, g, b)
+    elif t_norm <= 0.5:
+        # Cyan (0,1,1) → Green (0,1,0)
+        ratio = (t_norm - 0.25) / 0.25
+        r = 0.0
+        g = 1.0
+        b = 1.0 - ratio
+
+    elif t_norm <= 0.75:
+        # Green (0,1,0) → Yellow (1,1,0)
+        ratio = (t_norm - 0.5) / 0.25
+        r = ratio
+        g = 1.0
+        b = 0.0
+
+    else:
+        # Yellow (1,1,0) → Red (1,0,0)
+        ratio = (t_norm - 0.75) / 0.25
+        r = 1.0
+        g = 1.0 - ratio
+        b = 0.0
+
+    return (round(r, 3), round(g, 3), round(b, 3))
+
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
