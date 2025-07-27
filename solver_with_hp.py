@@ -63,7 +63,7 @@ class Node:
             # 1b) Upwind advection (only for flowing legs)
             if self.Type in ('flowUp', 'flowDown'):
                 F = system.m_dot_per_leg * system.cp_fluid
-                neighbor = self.up if self.Type == 'flowUp' else self.down
+                neighbor = self.down if self.Type == 'flowUp' else self.up
                 if neighbor:
                     j = neighbor.number
                     system.K[i, i] += F
@@ -474,12 +474,44 @@ class System:
             C[node.number] = rho * cp * vol
         self.C = C
 
+
+
+
     def buildSteadyMatrices(self):
+            # 1) Assemble base K‐matrix and b0 vector from every node
             N = len(self.Nodes)
             self.K = lil_matrix((N, N))
             self.b0 = np.zeros(N)
             for node in self.Nodes:
                 node.addToMatrix(self)
+
+            # 2) Strong U‑bend coupling at the bottom fluid layer
+            #    Find the deepest layer index where flowUp/flowDown live:
+            max_iy = max(nd.iy for nd in self.Nodes
+                         if nd.Type in ('flowUp', 'flowDown'))
+
+            #    Collect and sort the up/down legs by radius so they match:
+            ups = sorted([nd for nd in self.Nodes
+                          if nd.Type == 'flowUp' and nd.iy == max_iy],
+                         key=lambda n: n.x)
+            downs = sorted([nd for nd in self.Nodes
+                            if nd.Type == 'flowDown' and nd.iy == max_iy],
+                           key=lambda n: n.x)
+
+            #    A large conductance enforces ΔT → 0 between each pair:
+            Gbend = 1e8  # [W/K], tweak if you like—higher → tighter coupling
+
+            for up_node, down_node in zip(ups, downs):
+                i = up_node.number
+                j = down_node.number
+                # up → down
+                self.K[i, i] += Gbend
+                self.K[i, j] -= Gbend
+                # down → up (symmetric)
+                self.K[j, j] += Gbend
+                self.K[j, i] -= Gbend
+
+            # now self.K contains both your original physics and the U‑bend lock
 
     def saveTempsToCSV(self, temps, filename, selected_nodes=None):
         df = pd.DataFrame(temps, columns=[f'node_{i}' for i in range(temps.shape[1])])
@@ -490,10 +522,9 @@ class System:
         df.to_csv(filename, index=False)
         print(f"Saved temperatures to {filename}")
 
-    class System:
-        # … other methods …
 
-        def runTransient(self,
+
+    def runTransient(self,
                          hours,
                          dt=3600.0,
                          loads=None,
