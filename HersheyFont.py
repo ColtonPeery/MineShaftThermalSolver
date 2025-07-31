@@ -6,7 +6,7 @@ class HersheyFont:
 
     # see the __init__() at the bottom of the file
 
-    def drawText(self,text, xloc, yloc, scale=1, angle=0, slant=0, weight = 3, center = False):
+    def drawText(self,text, xloc, yloc, scale=1, angle=0, slant=0, weight = 3, center = False, justify = -1):
 
         cosval = np.cos(angle*np.pi/180)
         sinval = np.sin(angle*np.pi/180)
@@ -14,19 +14,27 @@ class HersheyFont:
 
         textlines = self.string_strokes(text)
         textlines = (textlines  * scale/32)
+        length = np.amax(textlines[:,0]) - np.amin(textlines[:,0])
+        xmid =  ( np.amax(textlines[:,0]) + np.amin(textlines[:,0]) ) /2
+        ymid =  ( np.amax(textlines[:,1]) + np.amin(textlines[:,1]) ) /2
+
+
 
         if center :
-            xcenter = ( np.amax(textlines[:,0]) + np.amin(textlines[:,0]) ) /2
-            ycenter = ( np.amax(textlines[:,1]) + np.amin(textlines[:,1]) ) /2
-            textlines -= [xcenter, ycenter]
+            textlines -= [xmid, ymid]
+
+        if justify == -1:
+            pass
+        elif  justify == 0:
+            textlines -= [xmid, 0]
+        elif justify == 1:
+            textlines -= [length, 0]
+
 
         if slant != 0:
             textlines[:,0] += textlines[:,1]*slant
         textlines = np.dot(textlines,rotate)
         textlines += [xloc, yloc]
-
-
-
 
         glLineWidth(weight)
         glBegin(GL_LINES)
