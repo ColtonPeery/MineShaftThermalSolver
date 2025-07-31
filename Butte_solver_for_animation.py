@@ -23,9 +23,6 @@ class Node:
         self.right = None
 
     def get_pipe_wall_resistance(self, system, dz=None):
-        """
-        Thermal resistance of the pipe wall [K/W] for one axial segment dz.
-        """
         if dz is None:
             dz = system.pipeNodeAxialSpacing
         r_i = system.innerPipeDiameter / 2.0
@@ -74,14 +71,48 @@ class Node:
             if ground and ground.Type == 'ground':
                 dr = ground.x - self.x
                 r_face = 0.5 * (self.x + ground.x)
-                dz = system.lowerWaterNodeAxialSpacing
+                if self.up and self.down:
+                    dz = self.down.y - self.up.y
+                elif self.up:
+                    dz = self.y - self.up.y
+                elif self.down:
+                    dz = self.down.y - self.y
+                else:
+                    # fallback if isolated—use the pipe spacing as a guess
+                    dz = system.pipeNodeAxialSpacing
                 k_w = system.get_conductivity('water')
                 A_r = 2.0 * np.pi * r_face * dz
                 G = k_w * A_r / dr
                 j = ground.number
 
+                # water equation
                 system.K[i, j] -= G
                 system.K[i, i] += G
+                # ground equation (mirror)
+                system.K[j, i] -= G
+                system.K[j, j] += G
+
+            if self.Type == 'water':
+                k_w = system.k_water
+                # cross‑sectional area for axial conduction: approximate
+                # A = 2π r * dr, with dr from radial spacing to neighbor
+                if self.left and self.right:
+                    dr = 0.5 * (self.right.x - self.left.x)
+                elif self.left:
+                    dr = self.x - self.left.x
+                elif self.right:
+                    dr = self.right.x - self.x
+                else:
+                    dr = system.innerGroundRadius  # fallback
+                A_ax = 2.0 * np.pi * self.x * dr
+
+                for neigh in (self.up, self.down):
+                    if neigh and neigh.Type == 'water':
+                        dz = abs(neigh.y - self.y)
+                        G = k_w * A_ax / dz
+                        j = neigh.number
+                        system.K[i, j] -= G
+                        system.K[i, i] += G
 
         # 3) Ground nodes: radial conduction to other ground nodes
         elif self.Type == 'ground':
@@ -134,32 +165,33 @@ class System:
         self.filedata = None
 
         # material properties
-        self.k_pipe = 1
-        self.k_water = 1
-        self.k_ground = 1
-        self.k_fluid = 1
-        self.rho_water = 1
-        self.cp_water = 1
-        self.u_axial_water = 1
-        self.rho_fluid = 1
-        self.cp_fluid = 1
-        self.rho_ground = 1
-        self.cp_ground = 1
-        self.rho_pipe = 1
-        self.cp_pipe = 1
+        self.k_pipe = 0.479
+        self.k_water = 0.6
+        self.k_ground = 2.77
+        self.k_fluid = 0.6
+        self.rho_water = 998
+        self.cp_water = 4180
+        # self.u_axial_water = 1
+        self.rho_fluid = 987
+        self.cp_fluid = 4337.34
+        self.rho_ground = 2800.0
+        self.cp_ground = 837.0
+        # self.rho_pipe = 1
+        # self.cp_pipe = 1
         self.num_legs = 4
-        self.m_dot_per_leg = 1
+        self.m_dot_per_leg = 3
         self.h_conv = 1
         self.T_fluid_in = 10.0
         self.use_axial_ground = True
         self.K = None
         self.b0 = None
         self.C = None
-        self.T_initial_fluid = 30.0
-        self.T_initial_water = 20.0
-        self.T_initial_ground = 15.0
+        self.T_initial_fluid = 35.0
+        self.T_initial_water = 31.0
+        self.T_initial_ground = 30.0
         self.displayed_node_indices = []
         self.current_display_hour = 0
+        self.frame = 0
 
     def get_conductivity(self, material_type):
         """
@@ -485,15 +517,16 @@ class System:
             yval = self.shaftDepth - n.y  # flip the y direction for drawing the picture
             if n.y < (self.pipeDepth / 5):  # we are only going down to 1/5 the pipe depth
                 if n.x < (self.innerGroundRadius * 24):  # only going outward a limited amount
-                    col = color_map.get(n.Type, (1.0, 1.0, 1.0))
-                    glColor3f(*col)
-                    gl2DCircle(xval, yval, radius=1, fill=True)
+                    # col = color_map.get(n.Type, (1.0, 1.0, 1.0))
                     glColor3f(1, 1, 1)
                     hf.drawText(n.Type, xval, yval, scale=1.5, center=True)
                     temp = T[hour, n.number]
-                    label = f"{temp:.1f}C"
+                    col = temperature_to_rgb(temp, 30, 33)
+                    glColor3f(*col)
+                    gl2DCircle(xval, yval, radius=1, fill=True)
+                    label = f"{temp:.2f}C"
                     glColor3f(1, 1, 1)
-                    hf.drawText(label, xval+1, yval+1, scale=1.5, center=True)
+                    hf.drawText(label, xval, yval+1.25, scale=1.25, center=True)
             else:
                 if yval == 0:  # we are at the bottom of the well
                     xval += delta_x  # move to the next column
@@ -512,6 +545,38 @@ class System:
         glVertex2f(xmin, ymin)
         glEnd()
 
+    def AnimationCallback(self, frame, nframes):
+        # calculations needed to configure the picture
+        # these could be done here or by calling a class method
+
+        self.current_display_hour = frame
+
+def temperature_to_rgb(temp, t_min, t_max):
+    """
+    Maps a temperature value to an RGB color.
+    Blue = t_min, Green = middle, Red = t_max
+    """
+    if t_min >= t_max:
+        raise ValueError("t_min must be less than t_max")
+
+    # Normalize temperature to range [0, 1]
+    t_norm = (temp - t_min) / (t_max - t_min)
+
+    if t_norm <= 0.5:
+        # From blue to green
+        ratio = t_norm / 0.5
+        r = 0
+        g = ratio
+        b = (1 - ratio)
+    else:
+        # From green to red
+        ratio = (t_norm - 0.5) / 0.5
+        r = ratio
+        g = (1 - ratio)
+        b = 0
+
+    return (r, g, b)
+
 
 if __name__ == "__main__":
     sys = System()
@@ -520,18 +585,37 @@ if __name__ == "__main__":
     sys.createAxialNodeLocations()
     sys.createNodes()
     sys.linkNodes()
-    temps = sys.runTransient(24, 3600)
+    temps = sys.runTransient(24,
+                             dt=3600.0,
+                             csv_filename="nodal_temps.csv",
+                             selected_nodes=None)
     sys.current_display_hour = 0
 
-    gl2D = gl2D(None, sys.draw_selected_nodes, width=1200, height=600)
-    sys.gl2D = gl2D  # save the gl2D object in "sys" so we have access to the gl2D variables later
+    gl2D1 = gl2D(None, sys.draw_selected_nodes, width=1200, height=600)
+    sys.gl2D = gl2D1  # save the gl2D object in "sys" so we have access to the gl2D variables later
 
-    gl2D.setViewSize(-sys.pipeNodeAxialSpacing,  # a little extra space on the left
+    gl2D1.setViewSize(-sys.pipeNodeAxialSpacing,  # a little extra space on the left
                      sys.pipeNodeAxialSpacing * 19,  # 19 determined by trial and error
                      sys.shaftDepth - (sys.pipeDepth / 5),  # show 1/5 of the pipe depth
                      sys.shaftDepth + sys.pipeNodeAxialSpacing,
                      # add a little extra space at the top allowDistortion=False
                      allowDistortion=False
                      )
-    gl2D.glWait()
+    gl2D1.glWait()
 
+    gl2D2 = gl2D(None, sys.draw_selected_nodes, width=1200, height=600)
+    sys.gl2D = gl2D2
+    gl2D2.setViewSize(-sys.pipeNodeAxialSpacing,  # a little extra space on the left
+                     sys.pipeNodeAxialSpacing * 19,  # 19 determined by trial and error
+                     sys.shaftDepth - (sys.pipeDepth / 5),  # show 1/5 of the pipe depth
+                     sys.shaftDepth + sys.pipeNodeAxialSpacing,
+                     # add a little extra space at the top allowDistortion=False
+                     allowDistortion=False
+                     )
+
+    nframes = len(sys.temps)-1
+    gl2D2.glStartAnimation(sys.AnimationCallback, nframes, delaytime=1,
+                          reverse=True, repeat=False, reset=True)
+
+    gl2D2.glWait()
+    print("hello")

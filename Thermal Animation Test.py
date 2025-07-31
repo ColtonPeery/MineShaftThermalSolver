@@ -33,11 +33,9 @@ class main_window(QDialog):
         self.system.createAxialNodeLocations()
         self.system.createNodes()
         self.system.linkNodes()
-
-
         self.temps = self.system.runTransient(24, dt=3600.0)
         self.current_hour = 0
-        self.current_temps = self.temps[self.current_hour]
+
 
 
         self.setupGLWindows()
@@ -66,7 +64,7 @@ class main_window(QDialog):
 
 
     def DrawingCallback(self):
-
+        self.system.draw_selected_nodes(self)
 
 
 
