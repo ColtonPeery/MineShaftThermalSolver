@@ -155,7 +155,11 @@ class System:
         self.K = None
         self.b0 = None
         self.C = None
+        self.T_initial_fluid = 30.0
+        self.T_initial_water = 20.0
+        self.T_initial_ground = 15.0
         self.displayed_node_indices = []
+        self.current_display_hour = 0
 
     def get_conductivity(self, material_type):
         """
@@ -445,90 +449,69 @@ class System:
         N = len(self.Nodes)
         A_eff = self.K.tocsr().copy()
         for i in range(N): A_eff[i, i] += self.C[i] / dt
-        T = np.full(N, getattr(self, 'T_initial', 30.0))
+        T = np.zeros(N)
+        for node in self.Nodes:
+            if node.Type in ('flowUp', 'flowDown', 'fluid'):
+                T[node.number] = self.T_initial_fluid
+            elif node.Type == 'water':
+                T[node.number] = self.T_initial_water
+            elif node.Type == 'ground':
+                T[node.number] = self.T_initial_ground
+            else:
+                T[node.number] = 0.0
         temps = np.zeros((hours + 1, N))
         temps[0] = T.copy()
         for n in range(hours): rhs = (self.C / dt) * T + self.b0; T = spsolve(A_eff, rhs); temps[n + 1] = T
         for node in self.Nodes: node.Temp = temps[-1, node.number]
         if csv_filename: self.saveTempsToCSV(temps, csv_filename, selected_nodes)
+        self.temps = temps  # <<< store it on the System
         return temps
 
-    def draw_slice_full(self):
-        """
-        Draws a full radial slice at the 4th axial layer, showing all node types.
-        """
-        z_target = self.AxialNodeLocations[3]
-        tol = self.pipeNodeAxialSpacing / 2.0
-        nodes_slice = [n for n in self.Nodes if abs(n.y - z_target) < tol]
-
-        color_map = {
-            'flowDown': (1, 0, 0),
-            'flowUp': (0.8, 0.2, 0.2),
-            'water': (0, 0, 1),
-            'ground': (0.2, 0.8, 0.2),
-        }
-
-        glClear(GL_COLOR_BUFFER_BIT)
-        glPointSize(10.0)
-        for n in nodes_slice:
-            glColor3f(*color_map.get(n.Type, (1, 1, 1)))
-            gl2DCircle(n.x, n.y, radius=0.1, fill=True)
-
-        # optional labels
-        glColor3f(1, 1, 1)
-        for n in nodes_slice:
-            hf.drawText(n.Type, n.x, n.y, scale=0.1)
-
-    def draw_all_nodes(self):
-        """
-        Draws every node in the system across the full radial and axial extents.
-        """
-        color_map = {
-            'flowDown': (1, 0, 0),
-            'flowUp': (0.8, 0.2, 0.2),
-            'water': (0, 0, 1),
-            'ground': (0.2, 0.8, 0.2),
-        }
-
-        glClear(GL_COLOR_BUFFER_BIT)
-        glPointSize(10.0)
-        for n in self.Nodes:
-            col = color_map.get(n.Type, (1.0, 1.0, 1.0))
-            glColor3f(*col)
-            gl2DCircle(n.x, self.shaftDepth - n.y, radius=0.1, fill=True)
-
-        # optional labels
-        glColor3f(1, 1, 1)
-        for n in self.Nodes:
-            hf.drawText(n.Type, n.x, self.shaftDepth - n.y, scale=0.25)
-
     def draw_selected_nodes(self):
-
+        hour = self.current_display_hour
+        T = self.temps
         color_map = {
             'flowDown': (1, 0, 0),
             'flowUp': (0.8, 0.2, 0.2),
             'water': (0, 0, 1),
             'ground': (0.2, 0.8, 0.2),
         }
-        self.displayed_node_indices = []
-        glClear(GL_COLOR_BUFFER_BIT)
-        glPointSize(10.0)
 
-        delta_x = self.innerGroundRadius * 2 / 42.0
+        glClear(GL_COLOR_BUFFER_BIT)
+
+        delta_x = self.pipeNodeAxialSpacing * 2  # double axial spacing looks good
         xval = 0
-        for n in self.Nodes:
-            if n.y < (self.pipeDepth / 5):
-                if n.x < (self.innerGroundRadius * 2):
-                    self.displayed_node_indices.append(n.number)
+        for n in self.Nodes:  # note: we travel down columns first
+            yval = self.shaftDepth - n.y  # flip the y direction for drawing the picture
+            if n.y < (self.pipeDepth / 5):  # we are only going down to 1/5 the pipe depth
+                if n.x < (self.innerGroundRadius * 24):  # only going outward a limited amount
                     col = color_map.get(n.Type, (1.0, 1.0, 1.0))
                     glColor3f(*col)
-                    gl2DCircle(xval, self.shaftDepth - n.y, radius=1, fill=True)
+                    gl2DCircle(xval, yval, radius=1, fill=True)
                     glColor3f(1, 1, 1)
-                    hf.drawText(n.Type, xval, self.shaftDepth - n.y, scale=2.5)
-
-
+                    hf.drawText(n.Type, xval, yval, scale=1.5, center=True)
+                    temp = T[hour, n.number]
+                    label = f"{temp:.1f}C"
+                    glColor3f(1, 1, 1)
+                    hf.drawText(label, xval+1, yval+1, scale=1.5, center=True)
             else:
-                xval += delta_x
+                if yval == 0:  # we are at the bottom of the well
+                    xval += delta_x  # move to the next column
+            # endif n.y
+            # endif
+
+        glBegin(GL_LINE_STRIP)  # draw the viewing box for reference
+        xmin = self.gl2D.glXmin  # these 4 lines are the reason we copied the gl2D into sys
+        xmax = self.gl2D.glXmax  # right after we created the window
+        ymin = self.gl2D.glYmin  # now we have access to the values sent to gl2D.setViewSize()
+        ymax = self.gl2D.glYmax  # right after we created the window
+        glVertex2f(xmin, ymin)
+        glVertex2f(xmin, ymax)
+        glVertex2f(xmax, ymax)
+        glVertex2f(xmax, ymin)
+        glVertex2f(xmin, ymin)
+        glEnd()
+
 
 if __name__ == "__main__":
     sys = System()
@@ -538,17 +521,17 @@ if __name__ == "__main__":
     sys.createNodes()
     sys.linkNodes()
     temps = sys.runTransient(24, 3600)
+    sys.current_display_hour = 0
 
+    gl2D = gl2D(None, sys.draw_selected_nodes, width=1200, height=600)
+    sys.gl2D = gl2D  # save the gl2D object in "sys" so we have access to the gl2D variables later
 
-
-    gl2d = gl2D(None, sys.draw_selected_nodes, windowType="glfw")
-    gl2d.setViewSize(0, (sys.innerGroundRadius * 2 / 42.0) * 7,
-                     sys.shaftDepth - (sys.pipeDepth / 5), sys.shaftDepth,
+    gl2D.setViewSize(-sys.pipeNodeAxialSpacing,  # a little extra space on the left
+                     sys.pipeNodeAxialSpacing * 19,  # 19 determined by trial and error
+                     sys.shaftDepth - (sys.pipeDepth / 5),  # show 1/5 of the pipe depth
+                     sys.shaftDepth + sys.pipeNodeAxialSpacing,
+                     # add a little extra space at the top allowDistortion=False
                      allowDistortion=False
                      )
-    gl2d.glWait()
-#
-sys.saveTempsToCSV(temps,
-        'displayed_nodes.csv',
-        sys.displayed_node_indices
-    )
+    gl2D.glWait()
+
